@@ -7,10 +7,23 @@ from app.db.session import get_async_session
 from app.schemas.answer_question import AnswerQuestionRequest
 from app.schemas.ask_question import AskQuestionRequest
 from app.schemas.create_session import CreateSessionRequest
+from app.schemas.guess_letter import GuessLetterRequest
+from app.schemas.guess_word import GuessWordRequest
 from app.schemas.session_snapshot import SessionSnapshot
 from app.services.rate_limit import enforce_ask_rate_limit
 from app.services.session_answer import answer_question
 from app.services.session_create import GridsUnavailableError, create_session
+from app.services.session_guess import (
+    CellAlreadyRevealedError,
+    CellLockedError,
+    OutOfTurnError,
+    SessionNotFoundError,
+    SessionNotInProgressError,
+    WordAlreadyRevealedError,
+    WordLockedError,
+    guess_letter,
+    guess_word,
+)
 from app.services.session_ask import ask_question
 from app.services.session_snapshot import SessionSnapshotNotFoundError, load_session_snapshot
 
@@ -24,6 +37,36 @@ SESSION_NOT_FOUND_DETAIL = {
 GRIDS_UNAVAILABLE_DETAIL = {
     "code": "grids_unavailable",
     "message": "Not enough grids available to create a session",
+}
+
+SESSION_NOT_IN_PROGRESS_DETAIL = {
+    "code": "session_not_in_progress",
+    "message": "Session is not in progress",
+}
+
+OUT_OF_TURN_DETAIL = {
+    "code": "out_of_turn",
+    "message": "It is not this player's turn",
+}
+
+CELL_ALREADY_REVEALED_DETAIL = {
+    "code": "cell_already_revealed",
+    "message": "Cell is already revealed",
+}
+
+CELL_LOCKED_DETAIL = {
+    "code": "cell_locked",
+    "message": "Cell is locked",
+}
+
+WORD_ALREADY_REVEALED_DETAIL = {
+    "code": "word_already_revealed",
+    "message": "Word is already fully revealed",
+}
+
+WORD_LOCKED_DETAIL = {
+    "code": "word_locked",
+    "message": "Word contains locked cells",
 }
 
 
@@ -96,3 +139,68 @@ async def answer_question_endpoint(
         player_number=payload.player_number,
         answer=payload.answer,
     )
+
+
+@router.post("/{session_id}/guess-letter", response_model=SessionSnapshot)
+async def guess_letter_endpoint(
+    session_id: uuid.UUID,
+    payload: GuessLetterRequest = Body(...),
+    db: AsyncSession = Depends(get_async_session),
+) -> SessionSnapshot:
+    try:
+        return await guess_letter(
+            db=db,
+            session_id=session_id,
+            player_number=payload.player_number,
+            cell_index=payload.cell_index,
+            letter=payload.letter,
+        )
+    except SessionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SESSION_NOT_FOUND_DETAIL) from None
+    except SessionNotInProgressError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=SESSION_NOT_IN_PROGRESS_DETAIL,
+        ) from None
+    except OutOfTurnError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OUT_OF_TURN_DETAIL) from None
+    except CellAlreadyRevealedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CELL_ALREADY_REVEALED_DETAIL,
+        ) from None
+    except CellLockedError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=CELL_LOCKED_DETAIL) from None
+
+
+@router.post("/{session_id}/guess-word", response_model=SessionSnapshot)
+async def guess_word_endpoint(
+    session_id: uuid.UUID,
+    payload: GuessWordRequest = Body(...),
+    db: AsyncSession = Depends(get_async_session),
+) -> SessionSnapshot:
+    try:
+        return await guess_word(
+            db=db,
+            session_id=session_id,
+            player_number=payload.player_number,
+            direction=payload.direction,
+            index=payload.index,
+            word=payload.word,
+        )
+    except SessionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SESSION_NOT_FOUND_DETAIL) from None
+    except SessionNotInProgressError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=SESSION_NOT_IN_PROGRESS_DETAIL,
+        ) from None
+    except OutOfTurnError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OUT_OF_TURN_DETAIL) from None
+    except WordAlreadyRevealedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=WORD_ALREADY_REVEALED_DETAIL,
+        ) from None
+    except WordLockedError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORD_LOCKED_DETAIL) from None

@@ -2356,6 +2356,526 @@
           }
         }
       }
+    },
+    "BE-5": {
+      "title": "Guess letter/word endpoints with turn enforcement, scoring, locking, and word-cascade reveals",
+      "completed_at": "2026-02-10T21:03:33Z",
+      "contracts": {
+        "GuessDirection": {
+          "type": "enum",
+          "values": [
+            "across",
+            "down"
+          ],
+          "layer": "python_api_only"
+        },
+        "GuessLetterRequest": {
+          "type": "object",
+          "fields": {
+            "player_number": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "cell_index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "letter": {
+              "type": "string",
+              "nullable": false,
+              "constraints": "^[A-Za-z]$"
+            }
+          },
+          "additional_properties": false
+        },
+        "GuessWordRequest": {
+          "type": "object",
+          "fields": {
+            "player_number": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "direction": {
+              "type": "GuessDirection",
+              "nullable": false
+            },
+            "index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "word": {
+              "type": "string",
+              "nullable": false,
+              "constraints": "^[A-Za-z]{5}$"
+            }
+          },
+          "additional_properties": false
+        },
+        "LetterGuessedEventData": {
+          "type": "object",
+          "fields": {
+            "cell_index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "row": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "col": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "guessed_letter": {
+              "type": "string",
+              "nullable": false,
+              "constraints": "^[A-Z]$"
+            },
+            "correct": {
+              "type": "bool",
+              "nullable": false
+            },
+            "revealed_letter": {
+              "type": "string",
+              "nullable": true,
+              "constraints": "null when correct=false; /^[A-Z]$/ when present"
+            },
+            "score_delta": {
+              "type": "int",
+              "nullable": false,
+              "values": [
+                0,
+                -5
+              ]
+            },
+            "opponent_score_delta": {
+              "type": "int",
+              "nullable": false,
+              "values": [
+                0,
+                1
+              ]
+            },
+            "locks_enqueued": {
+              "type": "int[]",
+              "nullable": false,
+              "constraints": "[] when correct=true; [cell_index] when correct=false"
+            },
+            "auto_reveals": {
+              "type": "RevealedCellEvent[]",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "WordGuessedEventData": {
+          "type": "object",
+          "fields": {
+            "direction": {
+              "type": "GuessDirection",
+              "nullable": false
+            },
+            "index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "guessed_word": {
+              "type": "string",
+              "nullable": false,
+              "constraints": "^[A-Z]{5}$"
+            },
+            "correct": {
+              "type": "bool",
+              "nullable": false
+            },
+            "revealed_cells": {
+              "type": "RevealedCellEvent[]",
+              "nullable": false,
+              "constraints": "ascending cell_index; only cells revealed directly by guess"
+            },
+            "score_delta": {
+              "type": "int",
+              "nullable": false,
+              "values": [
+                0,
+                -5
+              ]
+            },
+            "opponent_score_delta": {
+              "type": "int",
+              "nullable": false,
+              "values": [
+                0,
+                1
+              ]
+            },
+            "locks_enqueued": {
+              "type": "int[]",
+              "nullable": false,
+              "constraints": "ascending cell_index; unrevealed target cells only when incorrect"
+            },
+            "auto_reveals": {
+              "type": "RevealedCellEvent[]",
+              "nullable": false,
+              "constraints": "cascade reveal sequence order"
+            }
+          },
+          "additional_properties": false
+        },
+        "guess_letter": {
+          "type": "async_function",
+          "signature": "guess_letter(db: AsyncSession, session_id: UUID, player_number: int, cell_index: int, letter: str) -> SessionSnapshot",
+          "raises": [
+            "SessionNotFoundError",
+            "SessionNotInProgressError",
+            "OutOfTurnError",
+            "CellAlreadyRevealedError",
+            "CellLockedError"
+          ]
+        },
+        "guess_word": {
+          "type": "async_function",
+          "signature": "guess_word(db: AsyncSession, session_id: UUID, player_number: int, direction: GuessDirection, index: int, word: str) -> SessionSnapshot",
+          "raises": [
+            "SessionNotFoundError",
+            "SessionNotInProgressError",
+            "OutOfTurnError",
+            "WordAlreadyRevealedError",
+            "WordLockedError"
+          ]
+        }
+      },
+      "schemas": {
+        "database_tables": []
+      },
+      "files_created": [
+        "app/api/sessions.py",
+        "app/schemas/enums.py",
+        "app/schemas/guess_letter.py",
+        "app/schemas/guess_word.py",
+        "app/services/session_guess.py",
+        "tests/test_guess_schemas.py",
+        "tests/test_session_guess_service.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "Guess mutations use a new domain-service exception layer (no HTTPException in service) and explicit API-layer exception mapping to preserve exact contract codes/messages.",
+        "Both guess mutations run all writes in one transaction with SELECT ... FOR UPDATE on sessions and relevant cell_states; snapshot loading is done only after commit.",
+        "Word auto-reveal cascade scans deterministically each pass in fixed order: across 0..4, then down 0..4, repeating until no new reveals.",
+        "Wrong word guesses enqueue cell_locks strictly in ascending cell_index order and mirror locked state into denormalized cell_states.locked.",
+        "Guess event payloads are validated through strict Pydantic models before insert to prevent missing/extra keys and to enforce score/lock invariants."
+      ],
+      "environment_variables": [],
+      "enums": [
+        {
+          "name": "GuessDirection",
+          "values": [
+            "across",
+            "down"
+          ],
+          "layers": [
+            "python_api"
+          ]
+        }
+      ],
+      "response_schemas": {
+        "POST /sessions/{session_id}/guess-letter": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false
+              },
+              "players": {
+                "type": "PlayerSnapshot[2]",
+                "nullable": false
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "letter_guessed"
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false,
+                    "fields": {
+                      "cell_index": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "row": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "col": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "guessed_letter": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "correct": {
+                        "type": "bool",
+                        "nullable": false
+                      },
+                      "revealed_letter": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "score_delta": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "opponent_score_delta": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "locks_enqueued": {
+                        "type": "int[]",
+                        "nullable": false
+                      },
+                      "auto_reveals": {
+                        "type": "object[]",
+                        "nullable": false,
+                        "item_fields": {
+                          "cell_index": "int",
+                          "row": "int",
+                          "col": "int",
+                          "revealed_letter": "string"
+                        }
+                      }
+                    }
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_found",
+              "message": "Session not found",
+              "details": null
+            }
+          },
+          "409": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_in_progress | out_of_turn | cell_already_revealed | cell_locked",
+              "message": "Session is not in progress | It is not this player's turn | Cell is already revealed | Cell is locked",
+              "details": null
+            }
+          },
+          "422": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "validation_error",
+              "message": "Request validation failed",
+              "details": "array | object | string | null"
+            }
+          },
+          "500": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "internal_error",
+              "message": "Unexpected server error",
+              "details": null
+            }
+          }
+        },
+        "POST /sessions/{session_id}/guess-word": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false
+              },
+              "players": {
+                "type": "PlayerSnapshot[2]",
+                "nullable": false
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "word_guessed"
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false,
+                    "fields": {
+                      "direction": {
+                        "type": "string",
+                        "nullable": false,
+                        "enum": [
+                          "across",
+                          "down"
+                        ]
+                      },
+                      "index": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "guessed_word": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "correct": {
+                        "type": "bool",
+                        "nullable": false
+                      },
+                      "revealed_cells": {
+                        "type": "object[]",
+                        "nullable": false,
+                        "item_fields": {
+                          "cell_index": "int",
+                          "row": "int",
+                          "col": "int",
+                          "revealed_letter": "string"
+                        }
+                      },
+                      "score_delta": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "opponent_score_delta": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "locks_enqueued": {
+                        "type": "int[]",
+                        "nullable": false
+                      },
+                      "auto_reveals": {
+                        "type": "object[]",
+                        "nullable": false,
+                        "item_fields": {
+                          "cell_index": "int",
+                          "row": "int",
+                          "col": "int",
+                          "revealed_letter": "string"
+                        }
+                      }
+                    }
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_found",
+              "message": "Session not found",
+              "details": null
+            }
+          },
+          "409": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_in_progress | out_of_turn | word_already_revealed | word_locked",
+              "message": "Session is not in progress | It is not this player's turn | Word is already fully revealed | Word contains locked cells",
+              "details": null
+            }
+          },
+          "422": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "validation_error",
+              "message": "Request validation failed",
+              "details": "array | object | string | null"
+            }
+          },
+          "500": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "internal_error",
+              "message": "Unexpected server error",
+              "details": null
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -25,3 +25,8 @@ class EventType(str, enum.Enum):
     QUESTION_ANSWERED = "question_answered"
     LETTER_GUESSED = "letter_guessed"
     WORD_GUESSED = "word_guessed"
+
+
+class GuessDirection(str, enum.Enum):
+    ACROSS = "across"
+    DOWN = "down"
