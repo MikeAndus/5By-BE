@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    cors_allowed_origins: list[str] = Field(
+    cors_allowed_origins: str | list[str] = Field(
         default_factory=lambda: DEFAULT_CORS_ALLOWED_ORIGINS.copy(),
         alias="CORS_ALLOWED_ORIGINS",
     )
