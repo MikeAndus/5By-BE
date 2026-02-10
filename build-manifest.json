@@ -1,6 +1,6 @@
 {
-  "last_updated_by": "BE-0",
-  "last_updated_at": "2026-02-10T13:37:53Z",
+  "last_updated_by": "BE-2",
+  "last_updated_at": "2026-02-10T17:14:22Z",
   "nodes": {
     "BE-0": {
       "title": "Async FastAPI backend scaffold with DB healthcheck and Alembic wiring",
@@ -734,6 +734,669 @@
               "error": {
                 "type": "object",
                 "nullable": false
+              }
+            }
+          },
+          "500": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "internal_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Unexpected server error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "BE-2": {
+      "title": "Session lifecycle create endpoint and SessionSnapshot v1 contract alignment",
+      "completed_at": "2026-02-10T17:14:22Z",
+      "contracts": {
+        "CreateSessionRequest": {
+          "type": "object",
+          "extra": "forbid",
+          "fields": {
+            "player_1_name": {
+              "type": "string | null",
+              "nullable": true,
+              "required": false,
+              "constraints": "trim whitespace; if provided length must be 1..30 after trim"
+            },
+            "player_2_name": {
+              "type": "string | null",
+              "nullable": true,
+              "required": false,
+              "constraints": "trim whitespace; if provided length must be 1..30 after trim"
+            }
+          }
+        },
+        "CellSnapshot": {
+          "type": "object",
+          "fields": {
+            "index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "row": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "col": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "revealed": {
+              "type": "bool",
+              "nullable": false
+            },
+            "locked": {
+              "type": "bool",
+              "nullable": false
+            },
+            "letter": {
+              "type": "string",
+              "nullable": true,
+              "constraints": "null when revealed=false; required and /^[A-Z]$/ when revealed=true"
+            },
+            "revealed_by": {
+              "type": "RevealedBy | null",
+              "nullable": true,
+              "constraints": "must be null when revealed=false"
+            },
+            "topics_used": {
+              "type": "Topic[]",
+              "nullable": false,
+              "constraints": "0 <= length <= 5"
+            }
+          }
+        },
+        "SessionSnapshot": {
+          "type": "object",
+          "fields": {
+            "session_id": {
+              "type": "uuid",
+              "nullable": false
+            },
+            "status": {
+              "type": "SessionStatus",
+              "nullable": false
+            },
+            "current_turn": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "topics": {
+              "type": "Topic[]",
+              "nullable": false,
+              "constraints": "must exactly equal canonical list in canonical order"
+            },
+            "players": {
+              "type": "PlayerSnapshot[2]",
+              "nullable": false
+            },
+            "last_event": {
+              "type": "LastEvent | null",
+              "nullable": true
+            },
+            "created_at": {
+              "type": "datetime",
+              "nullable": false
+            },
+            "updated_at": {
+              "type": "datetime",
+              "nullable": false
+            }
+          }
+        },
+        "create_session": {
+          "type": "async_function",
+          "signature": "create_session(*, db: AsyncSession, player_1_name: str | None, player_2_name: str | None) -> uuid.UUID",
+          "raises": [
+            "GridsUnavailableError"
+          ],
+          "behavior": "single transaction; picks two random distinct grids, inserts sessions row, eagerly inserts 50 cell_states rows"
+        }
+      },
+      "schemas": {
+        "database_changes": []
+      },
+      "files_created": [
+        "app/api/sessions.py",
+        "app/schemas/create_session.py",
+        "app/schemas/session_snapshot.py",
+        "app/services/session_create.py",
+        "app/services/session_snapshot.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "POST /sessions accepts an optional JSON body; omitted body defaults both player names to null.",
+        "Session creation is atomic in app.services.session_create.create_session using one async transaction boundary.",
+        "Insufficient seeded grids is treated as service unavailability and mapped to HTTP 503 with code grids_unavailable.",
+        "Snapshot serializer always nulls letter/revealed_by when revealed is false, even if inconsistent DB data exists.",
+        "Canonical topics moved to SessionSnapshot.topics and each cell now serializes topics_used from cell_states.topics_used."
+      ],
+      "environment_variables": [],
+      "enums": [
+        {
+          "name": "topic",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "session_status",
+          "values": [
+            "in_progress",
+            "complete"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "revealed_by",
+          "values": [
+            "question",
+            "guess",
+            "auto"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "event_type",
+          "values": [
+            "question_asked",
+            "question_answered",
+            "letter_guessed",
+            "word_guessed"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "CANONICAL_TOPICS",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "python_api"
+          ]
+        }
+      ],
+      "response_schemas": {
+        "POST /sessions": {
+          "201": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false,
+                "exact_order": [
+                  "Politics",
+                  "Science",
+                  "History",
+                  "Art",
+                  "Current Affairs"
+                ]
+              },
+              "players": {
+                "type": "array",
+                "nullable": false,
+                "length": 2,
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "player_number": {
+                      "type": "int",
+                      "nullable": false,
+                      "enum": [
+                        1,
+                        2
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "score": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "grid_id": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "completed": {
+                      "type": "bool",
+                      "nullable": false
+                    },
+                    "cells": {
+                      "type": "array",
+                      "nullable": false,
+                      "items": {
+                        "type": "object",
+                        "fields": {
+                          "index": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..24"
+                          },
+                          "row": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "col": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "revealed": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "locked": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "letter": {
+                            "type": "string",
+                            "nullable": true,
+                            "constraints": "null when revealed=false; /^[A-Z]$/ when revealed=true"
+                          },
+                          "revealed_by": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "question",
+                              "guess",
+                              "auto"
+                            ],
+                            "constraints": "must be null when revealed=false"
+                          },
+                          "topics_used": {
+                            "type": "string[]",
+                            "nullable": false,
+                            "enum": [
+                              "Politics",
+                              "Science",
+                              "History",
+                              "Art",
+                              "Current Affairs"
+                            ],
+                            "max_length": 5
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": true,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "question_asked",
+                      "question_answered",
+                      "letter_guessed",
+                      "word_guessed"
+                    ]
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "503": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "grids_unavailable"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Not enough grids available to create a session"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "validation_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Request validation failed"
+                  },
+                  "details": {
+                    "type": "array | object | string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "internal_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Unexpected server error"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "GET /sessions/{session_id}": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false,
+                "exact_order": [
+                  "Politics",
+                  "Science",
+                  "History",
+                  "Art",
+                  "Current Affairs"
+                ]
+              },
+              "players": {
+                "type": "array",
+                "nullable": false,
+                "length": 2,
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "player_number": {
+                      "type": "int",
+                      "nullable": false,
+                      "enum": [
+                        1,
+                        2
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "score": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "grid_id": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "completed": {
+                      "type": "bool",
+                      "nullable": false
+                    },
+                    "cells": {
+                      "type": "array",
+                      "nullable": false,
+                      "items": {
+                        "type": "object",
+                        "fields": {
+                          "index": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..24"
+                          },
+                          "row": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "col": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "revealed": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "locked": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "letter": {
+                            "type": "string",
+                            "nullable": true,
+                            "constraints": "null when revealed=false; /^[A-Z]$/ when revealed=true"
+                          },
+                          "revealed_by": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "question",
+                              "guess",
+                              "auto"
+                            ],
+                            "constraints": "must be null when revealed=false"
+                          },
+                          "topics_used": {
+                            "type": "string[]",
+                            "nullable": false,
+                            "enum": [
+                              "Politics",
+                              "Science",
+                              "History",
+                              "Art",
+                              "Current Affairs"
+                            ],
+                            "max_length": 5
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": true,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "question_asked",
+                      "question_answered",
+                      "letter_guessed",
+                      "word_guessed"
+                    ]
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "session_not_found"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Session not found"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "validation_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Request validation failed"
+                  },
+                  "details": {
+                    "type": "array | object | string",
+                    "nullable": true
+                  }
+                }
               }
             }
           },

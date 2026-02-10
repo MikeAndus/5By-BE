@@ -53,6 +53,14 @@ def _to_event_type(value: object) -> EventType:
     return EventType(str(raw))
 
 
+def _to_topic(value: object) -> Topic:
+    if isinstance(value, Topic):
+        return value
+
+    raw = getattr(value, "value", value)
+    return Topic(str(raw))
+
+
 def _build_cell_snapshots(rows: Sequence[CellState]) -> list[CellSnapshot]:
     return [
         CellSnapshot(
@@ -61,9 +69,9 @@ def _build_cell_snapshots(rows: Sequence[CellState]) -> list[CellSnapshot]:
             col=row.cell_index % 5,
             revealed=row.revealed,
             locked=row.locked,
-            letter=row.letter,
-            revealed_by=_to_revealed_by(row.revealed_by),
-            topics=_CANONICAL_TOPICS,
+            letter=row.letter if row.revealed else None,
+            revealed_by=_to_revealed_by(row.revealed_by) if row.revealed else None,
+            topics_used=[_to_topic(topic) for topic in row.topics_used],
         )
         for row in rows
     ]
@@ -150,6 +158,7 @@ async def load_session_snapshot(session_id: uuid.UUID, db: AsyncSession) -> Sess
         session_id=session.id,
         status=_to_session_status(session.status),
         current_turn=session.current_turn,
+        topics=_CANONICAL_TOPICS,
         players=[player_1, player_2],
         last_event=last_event,
         created_at=session.created_at,
