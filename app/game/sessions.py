@@ -1,26 +1,27 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas.snapshots import LastEventSnapshot, SessionSnapshot
 from app.db.models.cell_state import CellState
 from app.db.models.enums import SessionStatus as DbSessionStatus
 from app.db.models.grid import Grid
 from app.db.models.session import Session
 from app.game.state_snapshot import build_state_snapshot
 
-_SESSION_CREATED_EVENT = LastEventSnapshot(type="session_created", result="ok")
+_SESSION_CREATED_EVENT = {"type": "session_created", "result": "ok", "score_delta": 0}
 
 
 def _initial_session_status() -> DbSessionStatus:
     lobby_status = getattr(DbSessionStatus, "LOBBY", None)
     if isinstance(lobby_status, DbSessionStatus):
         return lobby_status
-    return DbSessionStatus.IN_PROGRESS
+
+    return DbSessionStatus("lobby")
 
 
 async def _select_two_random_grids(db: AsyncSession) -> list[Grid]:
@@ -38,7 +39,7 @@ async def create_session(
     *,
     player_1_name: str | None = None,
     player_2_name: str | None = None,
-) -> SessionSnapshot:
+) -> Any:
     grids = await _select_two_random_grids(db)
     if len(grids) < 2:
         raise HTTPException(
