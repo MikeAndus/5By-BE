@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "five-by-backend"
+version = "0.1.0"
+description = "Async FastAPI backend scaffold for Five By"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic",
+  "pydantic-settings",
+  "SQLAlchemy>=2.0",
+  "asyncpg",
+  "alembic",
+  "python-dotenv",
+]
