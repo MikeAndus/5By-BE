@@ -11,15 +11,19 @@ from app.db.base import Base
 
 
 class Grid(Base):
+    """Immutable puzzle grids preloaded offline and never updated at runtime."""
+
     __tablename__ = "grids"
     __table_args__ = (
-        sa.CheckConstraint("array_length(cells, 1) = 25", name="ck_grids_cells_len"),
+        sa.UniqueConstraint("cells", name="uq_grids_cells"),
+        sa.CheckConstraint("length(cells) = 25", name="ck_grids_cells_len"),
+        sa.CheckConstraint("cells ~ '^[A-Z]{25}$'", name="ck_grids_cells_charset"),
         sa.CheckConstraint("array_length(words_across, 1) = 5", name="ck_grids_words_across_len"),
         sa.CheckConstraint("array_length(words_down, 1) = 5", name="ck_grids_words_down_len"),
     )
 
     grid_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    cells: Mapped[list[str]] = mapped_column(ARRAY(sa.CHAR(length=1)), nullable=False)
+    cells: Mapped[str] = mapped_column(sa.String(length=25), nullable=False)
     words_across: Mapped[list[str]] = mapped_column(ARRAY(sa.TEXT()), nullable=False)
     words_down: Mapped[list[str]] = mapped_column(ARRAY(sa.TEXT()), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

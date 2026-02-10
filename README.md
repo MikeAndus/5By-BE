@@ -22,6 +22,33 @@ uvicorn app.main:app --reload --port 8000
 alembic upgrade head
 ```
 
+## Seed immutable grids
+
+Grid data is checked in at `app/data/grids.json` and loaded only via CLI.
+
+```bash
+# validate and seed all grids (idempotent)
+python -m app.cli.seed_grids --data app/data/grids.json
+
+# validate only (no writes)
+python -m app.cli.seed_grids --dry-run
+
+# seed first 25 valid records
+python -m app.cli.seed_grids --limit 25
+
+# continue seeding valid rows even if invalid rows exist (still exits non-zero)
+python -m app.cli.seed_grids --continue-on-error
+```
+
+Seeder summary logs include:
+- `total_records`
+- `valid_count`
+- `invalid_count`
+- `inserted_count`
+- `skipped_count`
+- `dry_run`
+- `limit`
+
 ## Health checks
 
 ```bash
