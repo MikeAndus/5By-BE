@@ -30,6 +30,7 @@ class Session(Base):
             name="session_status",
             native_enum=True,
             create_type=False,
+            values_callable=lambda e: [x.value for x in e],
         ),
         nullable=False,
         server_default=sa.text("'in_progress'::session_status"),
