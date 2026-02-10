@@ -171,6 +171,83 @@
         "Included `cell_states_session_idx` and `event_logs_session_event_type_idx` in addition to required indexes for snapshot/caching query performance."
       ],
       "environment_variables": []
+    },
+    "BE-2": {
+      "title": "Session lifecycle APIs + canonical snapshot serializer",
+      "completed_at": "2026-02-10T08:47:29Z",
+      "contracts": {
+        "endpoints": {
+          "POST /sessions": {
+            "request_body": {
+              "player_1_name": "string | null (optional, trimmed, empty -> null, max_length=30)",
+              "player_2_name": "string | null (optional, trimmed, empty -> null, max_length=30)"
+            },
+            "response_status": 201,
+            "response_body": "SessionSnapshot"
+          },
+          "GET /sessions/{session_id}": {
+            "path_params": {
+              "session_id": "uuid"
+            },
+            "response_status": 200,
+            "response_body": "SessionSnapshot"
+          }
+        },
+        "interfaces": {
+          "SessionSnapshot": {
+            "session_id": "uuid",
+            "status": "in_progress | complete",
+            "current_turn": "1 | 2",
+            "players": [
+              {
+                "player_number": "1 | 2",
+                "name": "string | null",
+                "score": "integer",
+                "grid_id": "uuid",
+                "cells": [
+                  {
+                    "index": "0..24",
+                    "row": "0..4",
+                    "col": "0..4",
+                    "revealed": "boolean",
+                    "letter": "string (omitted when unrevealed)",
+                    "locked": "boolean",
+                    "topics_used": "string[]",
+                    "revealed_by": "question | guess | auto | null"
+                  }
+                ],
+                "completed": "boolean"
+              }
+            ],
+            "last_event": {
+              "type": "string",
+              "result": "string (optional)",
+              "message_to_speak": "string (optional)"
+            }
+          }
+        }
+      },
+      "schemas": {
+        "database": "No schema changes in BE-2."
+      },
+      "files_created": [
+        "app/api/router.py",
+        "app/api/routes/sessions.py",
+        "app/schemas/__init__.py",
+        "app/schemas/sessions.py",
+        "app/schemas/snapshot.py",
+        "app/services/__init__.py",
+        "app/services/snapshot_serializer.py",
+        "tests/test_sessions_lifecycle.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "last_event is always returned as an object; when no EventLog exists it is synthesized as {type:\"none\"} for GET and {type:\"session_created\", result:\"ok\"} for POST to keep FE contract stability.",
+        "Grid assignment uses two distinct random rows selected by ORDER BY random() LIMIT 2; session creation fails with 503 when fewer than two grids are available.",
+        "Snapshot serialization enforces deterministic ordering (players [1,2], cells 0..24), computes row/col from index, and hides unrevealed letters.",
+        "After session creation, the API re-queries session, grids, cell states, and latest event to serialize from canonical persisted state rather than ORM relationship caches."
+      ],
+      "environment_variables": []
     }
   }
 }
