@@ -52,4 +52,5 @@ async def get_health() -> HealthResponse:
         status="ok",
         service=SERVICE_NAME,
         db=HealthDb(status="ok"),
+        cors_debug=settings.cors_allowed_origins,
     )

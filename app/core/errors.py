@@ -21,3 +21,4 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     db: HealthDb
+    cors_debug: list[str] | None = None
