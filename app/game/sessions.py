@@ -21,7 +21,7 @@ def _initial_session_status() -> DbSessionStatus:
     if isinstance(lobby_status, DbSessionStatus):
         return lobby_status
 
-    return DbSessionStatus("lobby")
+    return DbSessionStatus.LOBBY
 
 
 async def _select_two_random_grids(db: AsyncSession) -> list[Grid]:

@@ -20,5 +20,10 @@ class EventType(str, Enum):
     LETTER_GUESSED = "letter_guessed"
     WORD_GUESSED = "word_guessed"
 
+class SessionStatus(str, Enum):
+    LOBBY = "lobby"
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+
 
 __all__ = ["SessionStatus", "RevealedBy", "EventType"]
