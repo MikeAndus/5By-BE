@@ -1,6 +1,6 @@
 {
-  "last_updated_by": "BE-2",
-  "last_updated_at": "2026-02-10T17:14:22Z",
+  "last_updated_by": "BE-3",
+  "last_updated_at": "2026-02-10T19:13:53Z",
   "nodes": {
     "BE-0": {
       "title": "Async FastAPI backend scaffold with DB healthcheck and Alembic wiring",
@@ -1370,6 +1370,522 @@
                     "type": "string",
                     "nullable": false,
                     "literal": "Session not found"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "validation_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Request validation failed"
+                  },
+                  "details": {
+                    "type": "array | object | string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "internal_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Unexpected server error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "BE-3": {
+      "title": "Ask Question endpoint with deterministic stub generation and transactional event logging",
+      "completed_at": "2026-02-10T19:13:53Z",
+      "contracts": {
+        "AskQuestionRequest": {
+          "type": "object",
+          "extra": "forbid",
+          "required": [
+            "player_number",
+            "cell_index",
+            "topic"
+          ],
+          "fields": {
+            "player_number": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "cell_index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "topic": {
+              "type": "Topic",
+              "nullable": false,
+              "enum": [
+                "Politics",
+                "Science",
+                "History",
+                "Art",
+                "Current Affairs"
+              ]
+            }
+          }
+        },
+        "QuestionAskedEventData": {
+          "type": "object",
+          "extra": "forbid",
+          "required": [
+            "cell_index",
+            "row",
+            "col",
+            "topic",
+            "question_text",
+            "answer",
+            "acceptable_variants",
+            "generator"
+          ],
+          "fields": {
+            "cell_index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "row": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "col": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "topic": {
+              "type": "Topic",
+              "nullable": false,
+              "enum": [
+                "Politics",
+                "Science",
+                "History",
+                "Art",
+                "Current Affairs"
+              ]
+            },
+            "question_text": {
+              "type": "string",
+              "nullable": false,
+              "max_length": 500
+            },
+            "answer": {
+              "type": "string",
+              "nullable": false,
+              "min_length": 1
+            },
+            "acceptable_variants": {
+              "type": "string[]",
+              "nullable": false,
+              "min_length": 1,
+              "item_min_length": 1
+            },
+            "generator": {
+              "type": "string",
+              "nullable": false,
+              "literal": "stub_v1"
+            }
+          }
+        },
+        "ask_question": {
+          "type": "async_function",
+          "signature": "ask_question(*, db: AsyncSession, session_id: uuid.UUID, player_number: int, cell_index: int, topic: Topic) -> SessionSnapshot",
+          "behavior": "single transaction with row locking; validates session and turn; enforces topics_used cap; decrements score by 1; appends topic to topics_used; writes event_logs.question_asked; flushes and returns fresh SessionSnapshot"
+        },
+        "generate_stub_question": {
+          "type": "function",
+          "signature": "generate_stub_question(*, topic: Topic, required_letter: str, cell_index: int) -> StubQuestion",
+          "determinism": "stable output for identical topic + required_letter + cell_index inputs"
+        }
+      },
+      "schemas": {
+        "database_changes": []
+      },
+      "files_created": [
+        "app/core/config.py",
+        "app/schemas/ask_question.py",
+        "app/services/trivia_generator_stub.py",
+        "app/services/session_ask.py",
+        "app/api/sessions.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "TRIVIA_GENERATOR_MODE accepts only stub/openai and defaults to stub; Phase 3 always persists generator=stub_v1 and uses deterministic stub output even when mode=openai.",
+        "Ask flow is fully transactional with FOR UPDATE locks on sessions and cell_states to serialize score/topic mutations and prevent race-condition drift.",
+        "required_letter is derived from the acting player's immutable grid cells string at cell_index rather than cell_states.letter.",
+        "topics_used mutations reassign a new list instead of in-place append to guarantee SQLAlchemy change tracking for ARRAY columns.",
+        "Missing cell_state/grid rows are treated as unexpected integrity faults and bubble to centralized 500 internal_error handling."
+      ],
+      "environment_variables": [
+        {
+          "key": "TRIVIA_GENERATOR_MODE",
+          "required": false,
+          "default": "stub",
+          "allowed_values": [
+            "stub",
+            "openai"
+          ],
+          "description": "Selects trivia question generator mode; Phase 3 keeps deterministic stub generation for both values."
+        }
+      ],
+      "enums": [
+        {
+          "name": "topic",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "event_type",
+          "values": [
+            "question_asked",
+            "question_answered",
+            "letter_guessed",
+            "word_guessed"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "session_status",
+          "values": [
+            "in_progress",
+            "complete"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "revealed_by",
+          "values": [
+            "question",
+            "guess",
+            "auto"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "CANONICAL_TOPICS",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "python_api"
+          ]
+        },
+        {
+          "name": "TRIVIA_GENERATOR_MODE",
+          "values": [
+            "stub",
+            "openai"
+          ],
+          "layers": [
+            "python_api",
+            "environment"
+          ]
+        }
+      ],
+      "response_schemas": {
+        "POST /sessions/{session_id}/ask": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false,
+                "exact_order": [
+                  "Politics",
+                  "Science",
+                  "History",
+                  "Art",
+                  "Current Affairs"
+                ]
+              },
+              "players": {
+                "type": "array",
+                "nullable": false,
+                "length": 2,
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "player_number": {
+                      "type": "int",
+                      "nullable": false,
+                      "enum": [
+                        1,
+                        2
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "score": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "grid_id": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "completed": {
+                      "type": "bool",
+                      "nullable": false
+                    },
+                    "cells": {
+                      "type": "array",
+                      "nullable": false,
+                      "items": {
+                        "type": "object",
+                        "fields": {
+                          "index": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..24"
+                          },
+                          "row": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "col": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "revealed": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "locked": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "letter": {
+                            "type": "string",
+                            "nullable": true,
+                            "constraints": "null when revealed=false; /^[A-Z]$/ when revealed=true"
+                          },
+                          "revealed_by": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "question",
+                              "guess",
+                              "auto"
+                            ],
+                            "constraints": "must be null when revealed=false"
+                          },
+                          "topics_used": {
+                            "type": "string[]",
+                            "nullable": false,
+                            "enum": [
+                              "Politics",
+                              "Science",
+                              "History",
+                              "Art",
+                              "Current Affairs"
+                            ],
+                            "max_length": 5
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": true,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "question_asked",
+                      "question_answered",
+                      "letter_guessed",
+                      "word_guessed"
+                    ]
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false,
+                    "fields": {
+                      "cell_index": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "row": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "col": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "topic": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "question_text": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "answer": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "acceptable_variants": {
+                        "type": "string[]",
+                        "nullable": false
+                      },
+                      "generator": {
+                        "type": "string",
+                        "nullable": false,
+                        "literal": "stub_v1"
+                      }
+                    }
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "session_not_found"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Session not found"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "session_not_in_progress",
+                      "out_of_turn",
+                      "topics_exhausted"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "Session is not in progress",
+                      "It is not this player's turn",
+                      "No topics remaining for this cell"
+                    ]
                   }
                 }
               }

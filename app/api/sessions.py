@@ -4,9 +4,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_async_session
+from app.schemas.ask_question import AskQuestionRequest
 from app.schemas.create_session import CreateSessionRequest
 from app.schemas.session_snapshot import SessionSnapshot
 from app.services.session_create import GridsUnavailableError, create_session
+from app.services.session_ask import ask_question
 from app.services.session_snapshot import SessionSnapshotNotFoundError, load_session_snapshot
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -20,7 +22,6 @@ GRIDS_UNAVAILABLE_DETAIL = {
     "code": "grids_unavailable",
     "message": "Not enough grids available to create a session",
 }
-
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SessionSnapshot)
 async def create_session_endpoint(
@@ -56,3 +57,18 @@ async def get_session_snapshot(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=SESSION_NOT_FOUND_DETAIL,
         ) from None
+
+
+@router.post("/{session_id}/ask", response_model=SessionSnapshot)
+async def ask_question_endpoint(
+    session_id: uuid.UUID,
+    payload: AskQuestionRequest = Body(...),
+    db: AsyncSession = Depends(get_async_session),
+) -> SessionSnapshot:
+    return await ask_question(
+        db=db,
+        session_id=session_id,
+        player_number=payload.player_number,
+        cell_index=payload.cell_index,
+        topic=payload.topic,
+    )

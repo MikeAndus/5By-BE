@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    trivia_generator_mode: str = Field(default="stub", alias="TRIVIA_GENERATOR_MODE")
     cors_allowed_origins: str | list[str] = Field(
         default_factory=lambda: DEFAULT_CORS_ALLOWED_ORIGINS.copy(),
         alias="CORS_ALLOWED_ORIGINS",
@@ -40,6 +41,14 @@ class Settings(BaseSettings):
             return parsed or DEFAULT_CORS_ALLOWED_ORIGINS.copy()
 
         return DEFAULT_CORS_ALLOWED_ORIGINS.copy()
+
+    @field_validator("trivia_generator_mode")
+    @classmethod
+    def validate_trivia_generator_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"stub", "openai"}:
+            raise ValueError("TRIVIA_GENERATOR_MODE must be one of: stub, openai")
+        return normalized
 
 
 @lru_cache
