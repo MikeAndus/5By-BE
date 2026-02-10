@@ -1,12 +1,15 @@
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_async_session
+from app.schemas.answer_question import AnswerQuestionRequest
 from app.schemas.ask_question import AskQuestionRequest
 from app.schemas.create_session import CreateSessionRequest
 from app.schemas.session_snapshot import SessionSnapshot
+from app.services.rate_limit import enforce_ask_rate_limit
+from app.services.session_answer import answer_question
 from app.services.session_create import GridsUnavailableError, create_session
 from app.services.session_ask import ask_question
 from app.services.session_snapshot import SessionSnapshotNotFoundError, load_session_snapshot
@@ -22,6 +25,7 @@ GRIDS_UNAVAILABLE_DETAIL = {
     "code": "grids_unavailable",
     "message": "Not enough grids available to create a session",
 }
+
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SessionSnapshot)
 async def create_session_endpoint(
@@ -62,13 +66,33 @@ async def get_session_snapshot(
 @router.post("/{session_id}/ask", response_model=SessionSnapshot)
 async def ask_question_endpoint(
     session_id: uuid.UUID,
+    request: Request,
     payload: AskQuestionRequest = Body(...),
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionSnapshot:
+    await enforce_ask_rate_limit(
+        session_id=session_id,
+        client_ip=request.client.host if request.client is not None else None,
+    )
+
     return await ask_question(
         db=db,
         session_id=session_id,
         player_number=payload.player_number,
         cell_index=payload.cell_index,
         topic=payload.topic,
+    )
+
+
+@router.post("/{session_id}/answer", response_model=SessionSnapshot)
+async def answer_question_endpoint(
+    session_id: uuid.UUID,
+    payload: AnswerQuestionRequest = Body(...),
+    db: AsyncSession = Depends(get_async_session),
+) -> SessionSnapshot:
+    return await answer_question(
+        db=db,
+        session_id=session_id,
+        player_number=payload.player_number,
+        answer=payload.answer,
     )

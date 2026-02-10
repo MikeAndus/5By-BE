@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     trivia_generator_mode: str = Field(default="stub", alias="TRIVIA_GENERATOR_MODE")
+    ask_rate_limit_requests: int = Field(default=10, alias="ASK_RATE_LIMIT_REQUESTS")
+    ask_rate_limit_window_seconds: int = Field(default=60, alias="ASK_RATE_LIMIT_WINDOW_SECONDS")
     cors_allowed_origins: str | list[str] = Field(
         default_factory=lambda: DEFAULT_CORS_ALLOWED_ORIGINS.copy(),
         alias="CORS_ALLOWED_ORIGINS",
@@ -49,6 +51,13 @@ class Settings(BaseSettings):
         if normalized not in {"stub", "openai"}:
             raise ValueError("TRIVIA_GENERATOR_MODE must be one of: stub, openai")
         return normalized
+
+    @field_validator("ask_rate_limit_requests", "ask_rate_limit_window_seconds")
+    @classmethod
+    def validate_positive_rate_limit_values(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Rate limit values must be > 0")
+        return value
 
 
 @lru_cache

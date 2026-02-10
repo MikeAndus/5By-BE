@@ -1,6 +1,6 @@
 {
-  "last_updated_by": "BE-3",
-  "last_updated_at": "2026-02-10T19:13:53Z",
+  "last_updated_by": "BE-4",
+  "last_updated_at": "2026-02-10T20:18:39Z",
   "nodes": {
     "BE-0": {
       "title": "Async FastAPI backend scaffold with DB healthcheck and Alembic wiring",
@@ -1935,6 +1935,423 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "BE-4": {
+      "title": "OpenAI Responses API integration for /ask plus new /answer endpoint",
+      "completed_at": "2026-02-10T20:18:39Z",
+      "contracts": {
+        "AnswerQuestionRequest": {
+          "type": "object",
+          "fields": {
+            "player_number": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "answer": {
+              "type": "string",
+              "nullable": false,
+              "constraints": "strip_whitespace=true, min_length=1, max_length=100"
+            }
+          },
+          "additional_properties": false
+        },
+        "QuestionAnsweredEventData": {
+          "type": "object",
+          "fields": {
+            "cell_index": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..24"
+            },
+            "row": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "col": {
+              "type": "int",
+              "nullable": false,
+              "range": "0..4"
+            },
+            "topic": {
+              "type": "Topic",
+              "nullable": false
+            },
+            "answer": {
+              "type": "string",
+              "nullable": false,
+              "min_length": 1
+            },
+            "correct": {
+              "type": "bool",
+              "nullable": false
+            },
+            "revealed_letter": {
+              "type": "string",
+              "nullable": true,
+              "constraints": "null when correct=false; /^[A-Z]$/ when correct=true"
+            },
+            "lock_cleared_cell_index": {
+              "type": "int",
+              "nullable": true,
+              "range": "0..24 when present"
+            }
+          },
+          "additional_properties": false
+        },
+        "generate_openai_question": {
+          "type": "async_function",
+          "signature": "generate_openai_question(session_id, player_number, cell_index, topic, required_letter, prior_questions, db) -> tuple[dict[str, Any], OpenAiResponseLog]",
+          "behavior": [
+            "Uses OpenAI Responses API model gpt-5-mini with strict JSON Schema response format.",
+            "Creates one openai_response_logs row per attempt (attempts 1..3).",
+            "Applies semantic guards and retries up to 2 times on failures.",
+            "Returns parsed payload plus successful OpenAiResponseLog row."
+          ]
+        },
+        "QuestionAskedEventData.generator": {
+          "type": "literal",
+          "values": [
+            "stub_v1",
+            "openai_responses_v1"
+          ]
+        }
+      },
+      "schemas": {
+        "database_tables": {
+          "openai_response_logs": {
+            "ddl": "CREATE TABLE openai_response_logs (id BIGSERIAL PRIMARY KEY, session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, player_number SMALLINT NOT NULL CHECK (player_number IN (1,2)), cell_index SMALLINT NOT NULL CHECK (cell_index BETWEEN 0 AND 24), topic topic NOT NULL, attempt SMALLINT NOT NULL, model TEXT NOT NULL, request_payload JSONB NOT NULL, response_payload JSONB NULL, parsed_payload JSONB NULL, error_message TEXT NULL, event_log_id BIGINT NULL REFERENCES event_logs(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());",
+            "indexes": [
+              "CREATE INDEX openai_response_logs_session_created_idx ON openai_response_logs (session_id, created_at DESC, id DESC);",
+              "CREATE INDEX openai_response_logs_event_log_id_idx ON openai_response_logs (event_log_id);",
+              "CREATE INDEX openai_response_logs_session_player_cell_idx ON openai_response_logs (session_id, player_number, cell_index);"
+            ]
+          }
+        },
+        "sqlalchemy_models": {
+          "OpenAiResponseLog": "Table openai_response_logs with attempt-level request/response/parse/error payloads and optional link to event_logs.id."
+        }
+      },
+      "files_created": [
+        "app/db/models/openai_response_log.py",
+        "alembic/versions/20260210_204500_create_openai_response_logs.py",
+        "app/schemas/answer_question.py",
+        "app/services/openai_client.py",
+        "app/services/trivia_generator_openai.py",
+        "app/services/rate_limit.py",
+        "app/services/session_answer.py",
+        "tests/test_answer_endpoint.py",
+        "tests/test_openai_ask_integration.py",
+        "tests/test_rate_limiting.py",
+        "app/schemas/ask_question.py",
+        "app/services/session_ask.py",
+        "app/api/sessions.py",
+        "app/core/config.py",
+        "app/db/models/__init__.py",
+        "requirements.txt",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "Used official OpenAI Python SDK (`openai`) and AsyncOpenAI client singleton via lru_cache.",
+        "Implemented strict JSON Schema output on Responses API with `additionalProperties:false` and `strict:true`, then added semantic guard retries (max 3 attempts).",
+        "Stored attempt logs in openai_response_logs before each API call and linked successful attempt to question_asked event_log_id.",
+        "Rate limiting is in-process and keyed by (session_id, client_ip), enforced only on POST /sessions/{session_id}/ask.",
+        "Pending question resolution for /answer uses most recent question_asked versus question_answered timestamps per player.",
+        "Answer correctness is exact after trim+casefold against acceptable_variants; no fuzzy/semantic matching added."
+      ],
+      "environment_variables": [
+        {
+          "key": "ASK_RATE_LIMIT_REQUESTS",
+          "required": false,
+          "description": "Maximum number of /ask requests allowed per (session_id, client_ip) window. Default 10."
+        },
+        {
+          "key": "ASK_RATE_LIMIT_WINDOW_SECONDS",
+          "required": false,
+          "description": "Sliding window size in seconds for /ask rate limiting. Default 60."
+        }
+      ],
+      "enums": [],
+      "response_schemas": {
+        "POST /sessions/{session_id}/ask": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false
+              },
+              "players": {
+                "type": "PlayerSnapshot[2]",
+                "nullable": false
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": true,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "question_asked"
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false,
+                    "fields": {
+                      "cell_index": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "row": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "col": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "topic": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "question_text": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "answer": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "acceptable_variants": {
+                        "type": "string[]",
+                        "nullable": false
+                      },
+                      "generator": {
+                        "type": "string",
+                        "nullable": false,
+                        "enum": [
+                          "stub_v1",
+                          "openai_responses_v1"
+                        ]
+                      }
+                    }
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_found",
+              "message": "Session not found",
+              "details": null
+            }
+          },
+          "409": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_in_progress | out_of_turn | topics_exhausted",
+              "message": "Session is not in progress | It is not this player's turn | No topics remaining for this cell",
+              "details": null
+            }
+          },
+          "429": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "rate_limited",
+              "message": "Too many requests",
+              "details": {
+                "retry_after_seconds": "int"
+              }
+            }
+          },
+          "503": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "openai_unavailable",
+              "message": "Trivia generation is temporarily unavailable",
+              "details": null
+            }
+          },
+          "422": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "validation_error",
+              "message": "Request validation failed",
+              "details": "array | object | string | null"
+            }
+          },
+          "500": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "internal_error",
+              "message": "Unexpected server error",
+              "details": null
+            }
+          }
+        },
+        "POST /sessions/{session_id}/answer": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "topics": {
+                "type": "string[]",
+                "nullable": false
+              },
+              "players": {
+                "type": "PlayerSnapshot[2]",
+                "nullable": false
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "question_answered"
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false,
+                    "fields": {
+                      "cell_index": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "row": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "col": {
+                        "type": "int",
+                        "nullable": false
+                      },
+                      "topic": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "answer": {
+                        "type": "string",
+                        "nullable": false
+                      },
+                      "correct": {
+                        "type": "bool",
+                        "nullable": false
+                      },
+                      "revealed_letter": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "lock_cleared_cell_index": {
+                        "type": "int",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_found",
+              "message": "Session not found",
+              "details": null
+            }
+          },
+          "409": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "session_not_in_progress | out_of_turn | no_pending_question",
+              "message": "Session is not in progress | It is not this player's turn | No pending question to answer",
+              "details": null
+            }
+          },
+          "422": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "validation_error",
+              "message": "Request validation failed",
+              "details": "array | object | string | null"
+            }
+          },
+          "500": {
+            "type": "ApiErrorResponse",
+            "error": {
+              "code": "internal_error",
+              "message": "Unexpected server error",
+              "details": null
             }
           }
         }

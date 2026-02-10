@@ -4,6 +4,7 @@ import re
 import uuid
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,9 @@ from app.db.models.session import Session
 from app.schemas.ask_question import QuestionAskedEventData
 from app.schemas.enums import Topic
 from app.schemas.session_snapshot import SessionSnapshot
+from app.services.openai_client import OpenAIClientUnavailableError
 from app.services.session_snapshot import load_session_snapshot
+from app.services.trivia_generator_openai import OpenAiGenerationFailedError, generate_openai_question
 from app.services.trivia_generator_stub import generate_stub_question
 
 SESSION_NOT_FOUND_DETAIL = {
@@ -39,6 +42,11 @@ TOPICS_EXHAUSTED_DETAIL = {
     "message": "No topics remaining for this cell",
 }
 
+OPENAI_UNAVAILABLE_DETAIL = {
+    "code": "openai_unavailable",
+    "message": "Trivia generation is temporarily unavailable",
+}
+
 
 def _get_required_letter(grid_cells: str, cell_index: int) -> str:
     if len(grid_cells) != 25:
@@ -49,6 +57,41 @@ def _get_required_letter(grid_cells: str, cell_index: int) -> str:
         raise RuntimeError("Grid letter is invalid; expected uppercase A-Z")
 
     return required_letter
+
+
+async def _get_prior_questions(
+    *,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    player_number: int,
+    cell_index: int,
+) -> list[str]:
+    rows = (
+        await db.scalars(
+            select(EventLog.event_data)
+            .where(
+                EventLog.session_id == session_id,
+                EventLog.player_number == player_number,
+                EventLog.type == EventTypeDbEnum.QUESTION_ASKED,
+            )
+            .order_by(EventLog.created_at.desc(), EventLog.id.desc())
+            .limit(50)
+        )
+    ).all()
+
+    prior_questions_desc: list[str] = []
+    for event_data in rows:
+        try:
+            parsed = QuestionAskedEventData.model_validate(event_data)
+        except ValidationError as exc:
+            raise RuntimeError("Invalid question_asked event_data found while loading prior questions") from exc
+        if parsed.cell_index == cell_index:
+            prior_questions_desc.append(parsed.question_text)
+            if len(prior_questions_desc) >= 10:
+                break
+
+    prior_questions_desc.reverse()
+    return prior_questions_desc
 
 
 async def ask_question(
@@ -123,30 +166,68 @@ async def ask_question(
         if generator_mode not in {"stub", "openai"}:
             raise RuntimeError("Unsupported trivia generator mode")
 
-        # Phase 3 always uses stub generation even when mode=openai is configured.
-        generated = generate_stub_question(topic=topic, required_letter=required_letter, cell_index=cell_index)
+        generated_payload: dict[str, object]
+        generator_name: str
+        successful_openai_attempt = None
+
+        if generator_mode == "stub":
+            generated = generate_stub_question(topic=topic, required_letter=required_letter, cell_index=cell_index)
+            generated_payload = {
+                "question_text": generated.question_text,
+                "answer": generated.answer,
+                "acceptable_variants": generated.acceptable_variants,
+            }
+            generator_name = "stub_v1"
+        else:
+            prior_questions = await _get_prior_questions(
+                db=db,
+                session_id=session_id,
+                player_number=player_number,
+                cell_index=cell_index,
+            )
+            try:
+                generated_payload, successful_openai_attempt = await generate_openai_question(
+                    session_id=session_id,
+                    player_number=player_number,
+                    cell_index=cell_index,
+                    topic=topic,
+                    required_letter=required_letter,
+                    prior_questions=prior_questions,
+                    db=db,
+                )
+            except (OpenAIClientUnavailableError, OpenAiGenerationFailedError):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=OPENAI_UNAVAILABLE_DETAIL,
+                ) from None
+
+            generator_name = "openai_responses_v1"
 
         event_data = QuestionAskedEventData(
             cell_index=cell_index,
             row=cell_index // 5,
             col=cell_index % 5,
             topic=topic,
-            question_text=generated.question_text,
-            answer=generated.answer,
-            acceptable_variants=generated.acceptable_variants,
-            generator="stub_v1",
+            question_text=str(generated_payload["question_text"]),
+            answer=str(generated_payload["answer"]),
+            acceptable_variants=[str(item) for item in generated_payload["acceptable_variants"]],
+            generator=generator_name,
         ).model_dump(mode="json")
 
-        db.add(
-            EventLog(
-                session_id=session_id,
-                player_number=player_number,
-                type=EventTypeDbEnum.QUESTION_ASKED,
-                event_data=event_data,
-            )
+        event_log = EventLog(
+            session_id=session_id,
+            player_number=player_number,
+            type=EventTypeDbEnum.QUESTION_ASKED,
+            event_data=event_data,
         )
+        db.add(event_log)
 
         await db.flush()
+
+        if successful_openai_attempt is not None:
+            successful_openai_attempt.event_log_id = event_log.id
+            await db.flush()
+
         snapshot = await load_session_snapshot(session_id=session_id, db=db)
 
     if snapshot is None:

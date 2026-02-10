@@ -25,4 +25,4 @@ class QuestionAskedEventData(BaseModel):
     question_text: str = Field(min_length=1, max_length=500)
     answer: str = Field(min_length=1)
     acceptable_variants: list[NonEmptyString] = Field(min_length=1)
-    generator: Literal["stub_v1"]
+    generator: Literal["stub_v1", "openai_responses_v1"]
