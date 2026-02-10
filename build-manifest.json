@@ -323,6 +323,98 @@
         "Session snapshot construction reads authoritative DB state (Session + CellState + latest EventLog) and validates strict player/cell cardinality to detect corrupt state early."
       ],
       "environment_variables": []
+    },
+    "BE-0": {
+      "title": "Backend Scaffold (FastAPI + Async SQLAlchemy)",
+      "completed_at": "2026-02-10T06:31:55.851340+00:00",
+      "contracts": "`GET /health`\n- Query: `db` (bool-like via FastAPI boolean parsing; supports `1,true,yes` and `0,false,no`)\n- `200` (default, or `db=1` and DB reachable):\n  - `{ \"status\": \"ok\", \"service\": string, \"env\": string, \"version\": \"0.1.0\", \"uptime_s\": number, \"db\": { \"checked\": boolean, \"ok\": boolean|null } }`\n- `503` (only when `db=1` and DB check fails):\n  - `{ \"status\": \"degraded\", \"service\": string, \"env\": string, \"version\": \"0.1.0\", \"uptime_s\": number, \"db\": { \"checked\": true, \"ok\": false, \"error\": \"database_unreachable\"|\"database_timeout\"|\"database_error\" } }`\n\nGlobal error handlers in `app/main.py`:\n- `422` validation: `{ \"error\": { \"code\": \"validation_error\", \"message\": \"Invalid request\", \"details\": [...] }, \"request_id\": \"...\" }`\n- `500` unhandled: `{ \"error\": { \"code\": \"internal_error\", \"message\": \"Internal server error\", \"details\": [] }, \"request_id\": \"...\" }`\n- Adds `X-Request-ID` header.",
+      "schemas": "No domain tables/models added in this node. Alembic is wired to `app.db.base.Base.metadata` for future BE-1 models.",
+      "files_created": [
+        "requirements.txt",
+        "requirements-dev.txt",
+        ".env.example",
+        "alembic.ini",
+        "alembic/env.py",
+        "alembic/script.py.mako",
+        "alembic/versions/.gitkeep",
+        "app/__init__.py",
+        "app/main.py",
+        "app/api/__init__.py",
+        "app/api/router.py",
+        "app/api/routes/__init__.py",
+        "app/api/routes/health.py",
+        "app/core/__init__.py",
+        "app/core/config.py",
+        "app/core/logging.py",
+        "app/core/middleware.py",
+        "app/db/__init__.py",
+        "app/db/base.py",
+        "app/db/session.py",
+        "tests/__init__.py",
+        "tests/test_health.py",
+        "pytest.ini"
+      ],
+      "decisions": "1) Settings: Pydantic Settings v2 with `.env` support for local dev (`app/core/config.py:10`).\n2) DB URL normalization: accept `postgres://` and normalize to:\n- runtime async `postgresql+asyncpg://` (`app/db/session.py:12`)\n- alembic sync `postgresql+psycopg://` (`app/db/session.py:34`)\n3) Migrations driver: Alembic intentionally uses sync psycopg (`alembic/env.py:18`).",
+      "environment_variables": [
+        {
+          "key": "DATABASE_URL",
+          "description": "Required. Accepts Render-style `postgres://...`; normalized for runtime and Alembic."
+        },
+        {
+          "key": "OPENAI_API_KEY",
+          "description": "Optional placeholder for later nodes."
+        },
+        {
+          "key": "CORS_ALLOW_ORIGINS",
+          "description": "Optional comma-separated origins. Default `http://localhost:5173`."
+        },
+        {
+          "key": "LOG_LEVEL",
+          "description": "Optional. Default `INFO`."
+        },
+        {
+          "key": "ENV",
+          "description": "Optional. `local|staging|production`, default `local`."
+        },
+        {
+          "key": "SERVICE_NAME",
+          "description": "Optional. Default `five-by-backend`."
+        }
+      ]
+    },
+    "BE-1-2": {
+      "title": "Grid Preload + Seed Command",
+      "completed_at": "2026-02-10T07:41:36.948961+00:00",
+      "contracts": "Seed CLI contract implemented in `app/cli/seed_grids.py`:\n- `python -m app.cli.seed_grids --data app/data/grids.json`\n- Options: `--data`, `--limit`, `--dry-run`, `--continue-on-error`, `--log-level {DEBUG,INFO,WARNING,ERROR}`\n- Behavior: strict validation first, deterministic UUIDv5 derivation, async DB inserts with `ON CONFLICT (grid_id) DO NOTHING`, summary logging (`total_records`, `valid_count`, `invalid_count`, `inserted_count`, `skipped_count`, `dry_run`, `limit`), non-zero exit when invalid rows exist.\n\nValidation contract in `app/core/grid_validation.py`:\n- Normalizes `strip().upper()`.\n- Enforces exact keys (`cells`, `words_across`, `words_down`), shape/type rules, regex checks (`cells`=`^[A-Z]{25}$`, words=`^[A-Z]{5}$`), across/down cross-consistency, and in-file uniqueness for both `cells` and derived `grid_id`.\n- Emits row-scoped issues with `row_index`, `reason`, optional `value`.\n\nDeterministic ID contract in `app/core/grid_id.py`:\n- `derive_grid_id(cells, words_across, words_down) -> UUID` using UUIDv5 with a fixed namespace and stable payload string.",
+      "schemas": "`Grid` ORM updated in `app/db/models/grid.py`:\n- `grid_id UUID PK`\n- `cells VARCHAR(25) NOT NULL`\n- `words_across TEXT[] NOT NULL`\n- `words_down TEXT[] NOT NULL`\n- Constraints: `UNIQUE(cells)`, `CHECK(length(cells)=25)`, `CHECK(cells ~ '^[A-Z]{25}$')`, array length checks for across/down = 5.\n\nAlembic revision `20260210_be1_2` in `alembic/versions/20260210_be1_2_grid_constraints_and_uniqueness.py`:\n- Creates `grids` if missing (canonical shape + constraints).\n- For existing `grids`, converts `cells` from array form to `VARCHAR(25)` (using `array_to_string(cells, '')`), ensures constraints and uniqueness on `cells`.\n- Downgrade restores array-backed `cells` and prior length check semantics.",
+      "files_created": [
+        "app/core/grid_id.py",
+        "app/core/grid_validation.py",
+        "app/cli/__init__.py",
+        "app/cli/__main__.py",
+        "app/cli/seed_grids.py",
+        "app/data/grids.json",
+        "alembic/versions/20260210_be1_2_grid_constraints_and_uniqueness.py"
+      ],
+      "decisions": "- Kept the repository\u2019s existing model layout (`app/db/models`) instead of introducing a parallel `app/models` tree.\n- Treated grids as immutable by convention via model docstring and by only adding offline CLI seeding paths (no HTTP endpoints, no update workflows).\n- Implemented strict key validation (extra/missing keys are invalid).\n- `invalid_count` reports invalid row count (not raw issue count) for clearer CLI summaries.\n- Enforced idempotency with deterministic UUIDv5 + `ON CONFLICT (grid_id) DO NOTHING`, while DB-level `UNIQUE(cells)` catches payload/ID divergence.",
+      "environment_variables": []
+    },
+    "BE-2": {
+      "title": "Session Lifecycle APIs + Snapshot Serializer",
+      "completed_at": "2026-02-10T08:48:50.927934",
+      "contracts": "Implemented `POST /sessions` and `GET /sessions/{session_id}` returning canonical `SessionSnapshot`.\n- `POST /sessions`: trims optional names, selects two random distinct grids, creates session + 50 cell states in one transaction, returns snapshot with synthetic `last_event={type:\"session_created\",result:\"ok\"}` when no log exists.\n- `GET /sessions/{session_id}`: loads session/cells/grids/latest event and returns deterministic snapshot; 404 when missing.\n- Determinism enforced: players `[1,2]`, cells ordered `0..24`, `row=index//5`, `col=index%5`, unrevealed `letter` omitted.",
+      "schemas": "No DB schema changes.",
+      "files_created": [
+        "app/api/routes/sessions.py",
+        "app/schemas/sessions.py",
+        "app/schemas/snapshot.py",
+        "app/schemas/__init__.py",
+        "app/services/snapshot_serializer.py",
+        "app/services/__init__.py",
+        "tests/test_sessions_lifecycle.py"
+      ],
+      "decisions": "- `last_event` is always an object; GET fallback is `{type:\"none\"}`, POST fallback is `{type:\"session_created\",result:\"ok\"}` when no `event_logs` row exists.\n- Grid assignment uses `ORDER BY random() LIMIT 2`; creation returns 503 with clear message if fewer than 2 grids.\n- Snapshot serialization is centralized in `serialize_session_snapshot(...)` and always built from fresh post-write reads.",
+      "environment_variables": []
     }
   }
 }
