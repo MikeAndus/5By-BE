@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.errors import ApiErrorCode, ApiException, make_error_payload
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -26,21 +27,46 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         request_id = _request_id_from_request(request)
+        details = exc.errors()
         logger.warning(
             "request_validation_error",
             method=request.method,
             path=request.url.path,
-            details=exc.errors(),
+            details=details,
         )
         return JSONResponse(
             status_code=422,
             headers={"X-Request-ID": request_id},
             content={
-                "error": {
-                    "code": "validation_error",
-                    "message": "Invalid request",
-                    "details": exc.errors(),
-                },
+                **make_error_payload(
+                    code=ApiErrorCode.VALIDATION_ERROR,
+                    message="Invalid request",
+                    details=details,
+                ),
+                "request_id": request_id,
+            },
+        )
+
+    @app.exception_handler(ApiException)
+    async def api_exception_handler(request: Request, exc: ApiException) -> JSONResponse:
+        request_id = _request_id_from_request(request)
+        logger.warning(
+            "api_exception",
+            method=request.method,
+            path=request.url.path,
+            status_code=exc.status_code,
+            code=exc.code,
+            details=exc.details,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers={"X-Request-ID": request_id},
+            content={
+                **make_error_payload(
+                    code=exc.code,
+                    message=exc.message,
+                    details=exc.details,
+                ),
                 "request_id": request_id,
             },
         )
@@ -60,11 +86,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=exc.status_code,
             headers={"X-Request-ID": request_id},
             content={
-                "error": {
-                    "code": "http_error",
-                    "message": message,
-                    "details": [],
-                },
+                **make_error_payload(code=ApiErrorCode.HTTP_ERROR, message=message, details=[]),
                 "request_id": request_id,
             },
         )
@@ -81,11 +103,11 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=500,
             headers={"X-Request-ID": request_id},
             content={
-                "error": {
-                    "code": "internal_error",
-                    "message": "Internal server error",
-                    "details": [],
-                },
+                **make_error_payload(
+                    code=ApiErrorCode.INTERNAL_ERROR,
+                    message="Internal server error",
+                    details=[],
+                ),
                 "request_id": request_id,
             },
         )
