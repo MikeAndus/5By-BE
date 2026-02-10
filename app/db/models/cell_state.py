@@ -57,6 +57,7 @@ class CellState(Base):
                 name="topic",
                 native_enum=True,
                 create_type=False,
+                values_callable=lambda e: [x.value for x in e],
             )
         ),
         nullable=False,

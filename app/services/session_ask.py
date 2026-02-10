@@ -111,7 +111,7 @@ async def ask_question(
             session.player_2_score -= 1
             grid_id = session.player_2_grid_id
 
-        cell_state.topics_used = [*existing_topics, TopicDbEnum(topic.value)]
+        cell_state.topics_used = [*existing_topics, TopicDbEnum[topic.name]]
 
         grid_cells = await db.scalar(select(Grid.cells).where(Grid.id == grid_id))
         if grid_cells is None:
