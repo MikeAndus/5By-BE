@@ -171,6 +171,158 @@
         "Included `cell_states_session_idx` and `event_logs_session_event_type_idx` in addition to required indexes for snapshot/caching query performance."
       ],
       "environment_variables": []
+    },
+    "BE-2-2": {
+      "title": "Input validation schemas + mutation rule guards for session endpoints",
+      "completed_at": "2026-02-10T08:46:33Z",
+      "contracts": {
+        "api_enums": {
+          "Topic": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "Direction": [
+            "across",
+            "down"
+          ],
+          "SessionStatus": [
+            "in_progress",
+            "complete"
+          ],
+          "RevealedBy": [
+            "question",
+            "guess",
+            "auto"
+          ]
+        },
+        "request_models": {
+          "AskRequest": {
+            "player_number": "Literal[1,2]",
+            "square": "SquareRef (cell_index 0..24 OR row 0..4 + col 0..4)",
+            "topic": "Topic"
+          },
+          "AnswerRequest": {
+            "player_number": "Literal[1,2]",
+            "answer": "trimmed string length 1..2000"
+          },
+          "GuessLetterRequest": {
+            "player_number": "Literal[1,2]",
+            "cell_index": "int 0..24",
+            "letter": "single uppercase A-Z (normalized)"
+          },
+          "GuessWordRequest": {
+            "player_number": "Literal[1,2]",
+            "direction": "Direction",
+            "index": "int 0..4",
+            "word": "exactly five uppercase A-Z letters (normalized)"
+          },
+          "SkipRequest": {
+            "player_number": "Literal[1,2]"
+          }
+        },
+        "response_models": {
+          "SessionSnapshot": {
+            "session_id": "uuid",
+            "status": "SessionStatus",
+            "current_turn": "Literal[1,2]",
+            "players": "list[PlayerSnapshot] length 2",
+            "last_event": "LastEventSnapshot | null"
+          },
+          "PlayerSnapshot": {
+            "player_number": "Literal[1,2]",
+            "name": "string | null",
+            "score": "int",
+            "grid_id": "uuid",
+            "cells": "list[CellSnapshot] length 25",
+            "completed": "bool"
+          },
+          "CellSnapshot": {
+            "index": "int 0..24",
+            "row": "int 0..4",
+            "col": "int 0..4",
+            "revealed": "bool",
+            "letter": "single uppercase A-Z | null",
+            "locked": "bool",
+            "topics_used": "list[str] subset of Topic values",
+            "revealed_by": "RevealedBy | null"
+          },
+          "LastEventSnapshot": {
+            "type": "string",
+            "result": "ok | error | null",
+            "message_to_speak": "string | null"
+          }
+        },
+        "mutation_endpoints": {
+          "POST /sessions": "501 placeholder (session creation owned by BE-2)",
+          "GET /sessions/{session_id}": "SessionSnapshot",
+          "POST /sessions/{session_id}/ask": "AskRequest -> SessionSnapshot",
+          "POST /sessions/{session_id}/answer": "AnswerRequest -> SessionSnapshot",
+          "POST /sessions/{session_id}/guess-letter": "GuessLetterRequest -> SessionSnapshot",
+          "POST /sessions/{session_id}/guess-word": "GuessWordRequest -> SessionSnapshot",
+          "POST /sessions/{session_id}/skip": "SkipRequest -> SessionSnapshot"
+        },
+        "error_contract": {
+          "ApiError": {
+            "error": {
+              "code": "string",
+              "message": "string",
+              "details": "any | null"
+            }
+          },
+          "status_mapping": {
+            "404": "SESSION_NOT_FOUND",
+            "409": "rule violations (OUT_OF_TURN, CELL_LOCKED, CELL_ALREADY_REVEALED, TOPIC_ALREADY_USED, SESSION_NOT_IN_PROGRESS, STATE_CORRUPT)",
+            "422": "request validation errors"
+          }
+        },
+        "guard_functions": [
+          "load_session_or_404",
+          "ensure_in_progress",
+          "ensure_turn_owner",
+          "load_cell_state",
+          "ensure_cell_not_revealed",
+          "ensure_cell_not_locked_for_guess",
+          "ensure_topic_allowed_and_unused",
+          "ensure_guess_word_cells_unlocked",
+          "ensure_session_ready_for_mutation",
+          "ensure_pending_question_exists (BE-3/BE-4 hook)"
+        ]
+      },
+      "schemas": {
+        "database": "No database schema changes in BE-2-2.",
+        "pydantic_modules": [
+          "app/api/schemas/enums.py",
+          "app/api/schemas/common.py",
+          "app/api/schemas/requests.py",
+          "app/api/schemas/snapshots.py"
+        ]
+      },
+      "files_created": [
+        "app/api/errors.py",
+        "app/api/guards.py",
+        "app/api/routes/sessions.py",
+        "app/api/schemas/__init__.py",
+        "app/api/schemas/common.py",
+        "app/api/schemas/enums.py",
+        "app/api/schemas/requests.py",
+        "app/api/schemas/snapshots.py",
+        "app/api/utils/__init__.py",
+        "app/api/utils/grid.py",
+        "tests/test_be_2_2_validation_and_guards.py",
+        "app/api/router.py",
+        "app/main.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "All mutating session endpoints are exposed now as contract-stable placeholders that execute validation and guard checks, then return the canonical snapshot until BE-3/BE-4 persistence logic lands.",
+        "Square references are normalized via a dedicated `SquareRef` model to enforce exactly one addressing mode: `cell_index` or `row/col`.",
+        "Guard failures are raised as structured API exceptions (`NotFoundError`, `RuleViolationError`) and mapped to consistent error payloads centrally in `app/main.py`.",
+        "Session snapshot construction reads authoritative DB state (Session + CellState + latest EventLog) and validates strict player/cell cardinality to detect corrupt state early."
+      ],
+      "environment_variables": []
     }
   }
 }
