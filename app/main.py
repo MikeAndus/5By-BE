@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import health
+from app.api import health, sessions
 from app.core.config import get_settings
 from app.core.errors import ApiError, ApiErrorResponse
 
@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(health.router)
+    application.include_router(sessions.router)
     return application
 
 

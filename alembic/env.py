@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
 from app.db.base import Base
+import app.db.models  # noqa: F401
 from app.db.session import normalize_database_url
 
 config = context.config

@@ -199,6 +199,567 @@
           }
         }
       }
+    },
+    "BE-1": {
+      "title": "Core Data Model + Migrations + Grid Loader",
+      "completed_at": "2026-02-10T15:19:57Z",
+      "contracts": {
+        "load_session_snapshot": {
+          "type": "async_function",
+          "signature": "load_session_snapshot(session_id: uuid.UUID, db: AsyncSession) -> SessionSnapshot",
+          "raises": [
+            "SessionSnapshotNotFoundError"
+          ]
+        },
+        "CellSnapshot": {
+          "type": "object",
+          "fields": {
+            "index": {
+              "type": "int",
+              "nullable": false,
+              "constraints": "0 <= index <= 24"
+            },
+            "row": {
+              "type": "int",
+              "nullable": false,
+              "constraints": "0 <= row <= 4"
+            },
+            "col": {
+              "type": "int",
+              "nullable": false,
+              "constraints": "0 <= col <= 4"
+            },
+            "revealed": {
+              "type": "bool",
+              "nullable": false
+            },
+            "locked": {
+              "type": "bool",
+              "nullable": false
+            },
+            "letter": {
+              "type": "string",
+              "nullable": true,
+              "constraints": "^[A-Z]$ when present"
+            },
+            "revealed_by": {
+              "type": "RevealedBy",
+              "nullable": true
+            },
+            "topics": {
+              "type": "Topic[]",
+              "nullable": false,
+              "constraints": "must exactly equal CANONICAL_TOPICS order"
+            }
+          }
+        },
+        "PlayerSnapshot": {
+          "type": "object",
+          "fields": {
+            "player_number": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "name": {
+              "type": "string",
+              "nullable": true
+            },
+            "score": {
+              "type": "int",
+              "nullable": false
+            },
+            "grid_id": {
+              "type": "int",
+              "nullable": false
+            },
+            "completed": {
+              "type": "bool",
+              "nullable": false
+            },
+            "cells": {
+              "type": "CellSnapshot[]",
+              "nullable": false
+            }
+          }
+        },
+        "LastEvent": {
+          "type": "object",
+          "fields": {
+            "type": {
+              "type": "EventType",
+              "nullable": false
+            },
+            "event_data": {
+              "type": "object",
+              "nullable": false
+            },
+            "created_at": {
+              "type": "datetime",
+              "nullable": false
+            }
+          }
+        },
+        "SessionSnapshot": {
+          "type": "object",
+          "fields": {
+            "session_id": {
+              "type": "uuid",
+              "nullable": false
+            },
+            "status": {
+              "type": "SessionStatus",
+              "nullable": false
+            },
+            "current_turn": {
+              "type": "literal 1 | 2",
+              "nullable": false
+            },
+            "players": {
+              "type": "PlayerSnapshot[2]",
+              "nullable": false
+            },
+            "last_event": {
+              "type": "LastEvent",
+              "nullable": true
+            },
+            "created_at": {
+              "type": "datetime",
+              "nullable": false
+            },
+            "updated_at": {
+              "type": "datetime",
+              "nullable": false
+            }
+          }
+        }
+      },
+      "schemas": {
+        "postgres_enums": {
+          "topic": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "session_status": [
+            "in_progress",
+            "complete"
+          ],
+          "revealed_by": [
+            "question",
+            "guess",
+            "auto"
+          ],
+          "event_type": [
+            "question_asked",
+            "question_answered",
+            "letter_guessed",
+            "word_guessed"
+          ]
+        },
+        "tables": {
+          "grids": {
+            "columns": {
+              "id": "BIGSERIAL PRIMARY KEY",
+              "cells": "CHAR(25) NOT NULL",
+              "words_across": "TEXT[] NOT NULL",
+              "words_down": "TEXT[] NOT NULL",
+              "created_at": "TIMESTAMPTZ NOT NULL DEFAULT now()"
+            },
+            "constraints": [
+              "UNIQUE (cells)",
+              "CHECK (char_length(cells)=25)",
+              "CHECK (array_length(words_across,1)=5)",
+              "CHECK (array_length(words_down,1)=5)"
+            ],
+            "indexes": []
+          },
+          "sessions": {
+            "columns": {
+              "id": "UUID PRIMARY KEY DEFAULT gen_random_uuid()",
+              "status": "session_status NOT NULL DEFAULT 'in_progress'",
+              "current_turn": "SMALLINT NOT NULL DEFAULT 1",
+              "player_1_grid_id": "BIGINT NOT NULL REFERENCES grids(id)",
+              "player_2_grid_id": "BIGINT NOT NULL REFERENCES grids(id)",
+              "player_1_name": "VARCHAR(30) NULL",
+              "player_2_name": "VARCHAR(30) NULL",
+              "player_1_score": "INT NOT NULL DEFAULT 100",
+              "player_2_score": "INT NOT NULL DEFAULT 100",
+              "created_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+              "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT now()"
+            },
+            "constraints": [
+              "CHECK (current_turn IN (1,2))"
+            ],
+            "indexes": [
+              "sessions_status_created_at_idx (status, created_at)"
+            ]
+          },
+          "cell_states": {
+            "columns": {
+              "session_id": "UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE",
+              "player_number": "SMALLINT NOT NULL",
+              "cell_index": "SMALLINT NOT NULL",
+              "revealed": "BOOLEAN NOT NULL DEFAULT false",
+              "locked": "BOOLEAN NOT NULL DEFAULT false",
+              "letter": "CHAR(1) NULL",
+              "revealed_by": "revealed_by NULL",
+              "topics_used": "topic[] NOT NULL DEFAULT ARRAY[]::topic[]",
+              "created_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+              "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT now()"
+            },
+            "constraints": [
+              "PRIMARY KEY (session_id, player_number, cell_index)",
+              "CHECK (player_number IN (1,2))",
+              "CHECK (cell_index BETWEEN 0 AND 24)",
+              "CHECK (letter ~ '^[A-Z]$')",
+              "CHECK (revealed OR (letter IS NULL AND revealed_by IS NULL))"
+            ],
+            "indexes": [
+              "cell_states_session_player_idx (session_id, player_number)",
+              "cell_states_session_player_locked_idx (session_id, player_number, locked)"
+            ]
+          },
+          "cell_locks": {
+            "columns": {
+              "id": "BIGSERIAL PRIMARY KEY",
+              "session_id": "UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE",
+              "player_number": "SMALLINT NOT NULL",
+              "cell_index": "SMALLINT NOT NULL",
+              "created_at": "TIMESTAMPTZ NOT NULL DEFAULT now()",
+              "cleared_at": "TIMESTAMPTZ NULL"
+            },
+            "constraints": [
+              "CHECK (player_number IN (1,2))",
+              "CHECK (cell_index BETWEEN 0 AND 24)"
+            ],
+            "indexes": [
+              "cell_locks_session_player_created_idx (session_id, player_number, created_at, id)",
+              "cell_locks_session_player_uncleared_idx (session_id, player_number) WHERE cleared_at IS NULL",
+              "cell_locks_session_player_cell_uncleared_idx (session_id, player_number, cell_index) WHERE cleared_at IS NULL"
+            ]
+          },
+          "event_logs": {
+            "columns": {
+              "id": "BIGSERIAL PRIMARY KEY",
+              "session_id": "UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE",
+              "player_number": "SMALLINT NOT NULL",
+              "type": "event_type NOT NULL",
+              "event_data": "JSONB NOT NULL DEFAULT '{}'::jsonb",
+              "created_at": "TIMESTAMPTZ NOT NULL DEFAULT now()"
+            },
+            "constraints": [
+              "CHECK (player_number IN (1,2))"
+            ],
+            "indexes": [
+              "event_logs_session_created_idx (session_id, created_at DESC, id DESC)",
+              "event_logs_session_player_created_idx (session_id, player_number, created_at DESC, id DESC)"
+            ]
+          }
+        }
+      },
+      "files_created": [
+        "app/db/enums.py",
+        "app/db/models/__init__.py",
+        "app/db/models/grid.py",
+        "app/db/models/session.py",
+        "app/db/models/cell_state.py",
+        "app/db/models/cell_lock.py",
+        "app/db/models/event_log.py",
+        "app/schemas/__init__.py",
+        "app/schemas/enums.py",
+        "app/schemas/session_snapshot.py",
+        "app/services/__init__.py",
+        "app/services/session_snapshot.py",
+        "app/api/sessions.py",
+        "scripts/seed_grids.py",
+        "alembic/versions/20260210_150500_phase1_core_tables_and_enums.py",
+        "alembic/env.py",
+        "app/main.py",
+        "app/core/constants.py",
+        "build-manifest.json"
+      ],
+      "decisions": [
+        "Session snapshot service returns exactly two players (1 and 2) and tolerates non-0/non-25 cell_state row counts by returning cells=[] with warning logs for frontend stability.",
+        "Phase 1 serializer returns canonical topic order from CANONICAL_TOPICS for every cell as a stable contract surface before gameplay topic mutation logic is introduced.",
+        "Missing sessions are converted to HTTP 404 with detail {code: session_not_found, message: Session not found} and then wrapped by global error handlers.",
+        "Grid import supports .json (array) and .jsonl; invalid rows fail fast with row/line error context, and inserts are idempotent via ON CONFLICT (cells) DO NOTHING.",
+        "Alembic migration leaves pgcrypto extension installed on downgrade while dropping Phase 1 tables and enums in reverse dependency order."
+      ],
+      "environment_variables": [],
+      "enums": [
+        {
+          "name": "topic",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "session_status",
+          "values": [
+            "in_progress",
+            "complete"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "revealed_by",
+          "values": [
+            "question",
+            "guess",
+            "auto"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "event_type",
+          "values": [
+            "question_asked",
+            "question_answered",
+            "letter_guessed",
+            "word_guessed"
+          ],
+          "layers": [
+            "postgres",
+            "python_db",
+            "python_api"
+          ]
+        },
+        {
+          "name": "CANONICAL_TOPICS",
+          "values": [
+            "Politics",
+            "Science",
+            "History",
+            "Art",
+            "Current Affairs"
+          ],
+          "layers": [
+            "python_api"
+          ]
+        }
+      ],
+      "response_schemas": {
+        "GET /sessions/{session_id}": {
+          "200": {
+            "type": "object",
+            "fields": {
+              "session_id": {
+                "type": "string(uuid)",
+                "nullable": false
+              },
+              "status": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "in_progress",
+                  "complete"
+                ]
+              },
+              "current_turn": {
+                "type": "int",
+                "nullable": false,
+                "enum": [
+                  1,
+                  2
+                ]
+              },
+              "players": {
+                "type": "array",
+                "nullable": false,
+                "length": 2,
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "player_number": {
+                      "type": "int",
+                      "nullable": false,
+                      "enum": [
+                        1,
+                        2
+                      ]
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "score": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "grid_id": {
+                      "type": "int",
+                      "nullable": false
+                    },
+                    "completed": {
+                      "type": "bool",
+                      "nullable": false
+                    },
+                    "cells": {
+                      "type": "array",
+                      "nullable": false,
+                      "items": {
+                        "type": "object",
+                        "fields": {
+                          "index": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..24"
+                          },
+                          "row": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "col": {
+                            "type": "int",
+                            "nullable": false,
+                            "range": "0..4"
+                          },
+                          "revealed": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "locked": {
+                            "type": "bool",
+                            "nullable": false
+                          },
+                          "letter": {
+                            "type": "string",
+                            "nullable": true,
+                            "constraints": "^[A-Z]$"
+                          },
+                          "revealed_by": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "question",
+                              "guess",
+                              "auto"
+                            ]
+                          },
+                          "topics": {
+                            "type": "string[]",
+                            "nullable": false,
+                            "exact_order": [
+                              "Politics",
+                              "Science",
+                              "History",
+                              "Art",
+                              "Current Affairs"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "last_event": {
+                "type": "object",
+                "nullable": true,
+                "fields": {
+                  "type": {
+                    "type": "string",
+                    "nullable": false,
+                    "enum": [
+                      "question_asked",
+                      "question_answered",
+                      "letter_guessed",
+                      "word_guessed"
+                    ]
+                  },
+                  "event_data": {
+                    "type": "object",
+                    "nullable": false
+                  },
+                  "created_at": {
+                    "type": "string(datetime)",
+                    "nullable": false
+                  }
+                }
+              },
+              "created_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              },
+              "updated_at": {
+                "type": "string(datetime)",
+                "nullable": false
+              }
+            }
+          },
+          "404": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "session_not_found"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Session not found"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false
+              }
+            }
+          },
+          "500": {
+            "type": "object",
+            "fields": {
+              "error": {
+                "type": "object",
+                "nullable": false,
+                "fields": {
+                  "code": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "internal_error"
+                  },
+                  "message": {
+                    "type": "string",
+                    "nullable": false,
+                    "literal": "Unexpected server error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
