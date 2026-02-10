@@ -400,20 +400,17 @@
       "environment_variables": []
     },
     "BE-2": {
-      "title": "Session Lifecycle APIs + Snapshot Serializer",
-      "completed_at": "2026-02-10T08:48:50.927934",
-      "contracts": "Implemented `POST /sessions` and `GET /sessions/{session_id}` returning canonical `SessionSnapshot`.\n- `POST /sessions`: trims optional names, selects two random distinct grids, creates session + 50 cell states in one transaction, returns snapshot with synthetic `last_event={type:\"session_created\",result:\"ok\"}` when no log exists.\n- `GET /sessions/{session_id}`: loads session/cells/grids/latest event and returns deterministic snapshot; 404 when missing.\n- Determinism enforced: players `[1,2]`, cells ordered `0..24`, `row=index//5`, `col=index%5`, unrevealed `letter` omitted.",
+      "title": "Session creation service and shared state snapshot builder",
+      "completed_at": "2026-02-10T09:39:32Z",
+      "contracts": "Implemented production `POST /sessions` flow via `app/game/sessions.py#create_session` and centralized snapshot assembly via `app/game/state_snapshot.py#build_state_snapshot`.\n- `POST /sessions`: validates at least 2 grids exist (503 otherwise), selects two distinct random grids, creates a session (`current_turn=1`, scores initialized to `0`, UUIDv4 player IDs), bulk inserts 50 `cell_states` rows (players 1/2 x indices 0..24), then returns the built snapshot.\n- `GET /sessions/{session_id}` and mutation placeholder responses now use the same shared `build_state_snapshot(...)` path for deterministic read shape.\n- Route contract now returns `201` with `SessionSnapshot` for successful `POST /sessions`.",
       "schemas": "No DB schema changes.",
       "files_created": [
         "app/api/routes/sessions.py",
-        "app/schemas/sessions.py",
-        "app/schemas/snapshot.py",
-        "app/schemas/__init__.py",
-        "app/services/snapshot_serializer.py",
-        "app/services/__init__.py",
-        "tests/test_sessions_lifecycle.py"
+        "app/game/__init__.py",
+        "app/game/sessions.py",
+        "app/game/state_snapshot.py"
       ],
-      "decisions": "- `last_event` is always an object; GET fallback is `{type:\"none\"}`, POST fallback is `{type:\"session_created\",result:\"ok\"}` when no `event_logs` row exists.\n- Grid assignment uses `ORDER BY random() LIMIT 2`; creation returns 503 with clear message if fewer than 2 grids.\n- Snapshot serialization is centralized in `serialize_session_snapshot(...)` and always built from fresh post-write reads.",
+      "decisions": "- Session creation logic moved out of route handlers into `app/game/sessions.py` so endpoint behavior and future game orchestration are decoupled from HTTP plumbing.\n- Snapshot read logic is centralized in `app/game/state_snapshot.py` to keep GET and mutation-return responses consistent and sourced from fresh DB reads.\n- Session status initialization prefers `SessionStatus.LOBBY` when that enum exists, otherwise safely falls back to `SessionStatus.IN_PROGRESS` for compatibility with current schema.",
       "environment_variables": []
     }
   }
