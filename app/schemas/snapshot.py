@@ -50,7 +50,7 @@ class SessionPlayerSnapshot(BaseModel):
 
 class SessionSnapshot(BaseModel):
     session_id: UUID
-    status: Literal["in_progress", "complete"]
+    status: Literal["lobby", "in_progress", "complete"]
     current_turn: Literal[1, 2]
     players: list[SessionPlayerSnapshot] = Field(min_length=2, max_length=2)
     last_event: SnapshotLastEvent

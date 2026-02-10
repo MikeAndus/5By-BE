@@ -3,9 +3,6 @@ from __future__ import annotations
 from enum import Enum
 
 
-class SessionStatus(str, Enum):
-    IN_PROGRESS = "in_progress"
-    COMPLETE = "complete"
 
 
 class RevealedBy(str, Enum):

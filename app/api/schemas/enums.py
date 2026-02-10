@@ -17,6 +17,7 @@ class Direction(str, Enum):
 
 
 class SessionStatus(str, Enum):
+    LOBBY = "lobby"
     IN_PROGRESS = "in_progress"
     COMPLETE = "complete"
 
